@@ -1,64 +1,76 @@
 # coding=utf-8
 import numpy as np
+from descent import gradientdescent
 
 
-def sigmoid(X):
-    return 1.0 / (1 + np.exp(-X))
-
-
-class LogisticRegression:
-    coef = None
-    iternum = 100
-    alpha = 0.2
+# 逻辑回归
+class LinearRegression:
+    """Class for implimenting Linear Regression"""
 
     def __init__(self):
-        pass
-
-    def fit(self, X, y):
-        row_num, col_num = X.shape
-        col_num += 1  # 增加无参数列
-        X = np.c_[X, np.ones(row_num)]
-        y = np.mat(y).reshape((row_num, 1))
-        w = np.mat(np.ones(col_num)).reshape((col_num+1))
-
-        for i in xrange(self.iternum):
-            h = sigmoid(X * w)
-            err = y - h
-            w += self.alpha * X.transpose() * err
-        self.w = w
+        """
+        Attributes::
+            learned (bool): Keeps track of if Linear Regression has been fit
+            weights (np.ndarray): vector of weights for linear regression
+        """
+        self.learned = False
+        self.weights = np.NaN
 
     def predict(self, X):
-        row_num, col_num = X.shape
-        X = np.c_[X, np.ones(row_num)]
-        y = sigmoid(X * self.w)
-        y[y > 0.5] = 1
-        y[y <= 0.5] = 0
-        y = y.astype(int)
-        return y
+        """
+        Args:
+            X (np.ndarray): Test data of shape[n_samples, n_features]
+        Returns:
+            np.ndarray: shape[n_samples, 1], predicted values
+        Raises:
+            ValueError if model has not been fit
+        """
+        if not self.learned:
+            raise NameError('Fit model first')
+        # Add column of 1s to X for perceptron threshold
+        X = np.asarray(X)
+        X = np.column_stack((np.ones(np.shape(X)[0]), X))
+        prediction = np.dot(X, np.transpose(self.weights))
+        return prediction
 
+    def grad(self, X, y, weights):
+        """
+        Computes the gradient (needed if using gradient descent).
 
-def samples(n_samples):
-    x1 = np.random.uniform(-10.0, 10.0, n_samples)
-    x2 = np.random.uniform(-10.0, 10.0, n_samples)
-    y = x1 + x2 - 1
-    y[y > 0] = 1
-    y[y <= 0] = 0
-    y = y.astype(int)
-    X = np.array([x1, x2]).reshape(n_samples, 2)
-    y = np.array(y)
-    return X, y
+        Args:
+            X (np.ndarray): Training data of shape[n_samples, n_features]
+            y (np.ndarray): Target values of shape[n_samples, 1]
+            weights (np.ndarray): Optional use of gradient descent to calculate weights
+                if False, uses closed form solution to calculate weights.
+        Returns:
+            np.array: the gradient of the linear regression cost function
+        """
+        hypothesis = np.dot(X, weights) - y
+        gradient = np.dot(np.transpose(X), hypothesis) / np.size(y)
+        return gradient
 
-if __name__ == "__main__":
-    n_samples = 100
-    X_train, y_train = samples(n_samples)
-    X_test, y_test = samples(20)
-    lr = LogisticRegression()
-    lr.fit(X_train, y_train)
-    y_pred = lr.predict(X_test)
-    count = 0
-    for a, b in zip(y_test, y_pred):
-        if a == b:
-            count += 1
-    print "accuracy=%f" % (1.0 * count / y_test.shape[0])
+    def fit(self, X, y, gradient=False, reg_parameter=0):
+        """
+        Currently, only L2 regularization is implemented.
 
+        Args:
+            X (np.ndarray): Training data of shape[n_samples, n_features]
+            y (np.ndarray): Target values of shape[n_samples, 1]
+            gradient (bool): Optional use of gradient descent to calculate weights
+                if False, uses closed form solution to calculate weights.
+            reg_parameter (float): float to determine strength of regulatrization  penalty
+                if 0, then no linear regression without regularization is performed
+        Returns: an instance of self
+        """
+        y = np.asarray(y)
+        X = np.asarray(X)
+        X = np.column_stack((np.ones(np.shape(X)[0]), X))
+        if gradient:
+            self.weights = gradientdescent(X, y, self.grad, reg_param=reg_parameter)
+        else:
+            # Calculate weights (closed form solution)
+            XtX_lambaI = np.dot(np.transpose(X), X) + reg_parameter * np.identity(len(np.dot(np.transpose(X), X)))
+            self.weights = np.dot(np.linalg.pinv(XtX_lambaI), np.dot(np.transpose(X), y))
+        self.learned = True
+        return self
 
