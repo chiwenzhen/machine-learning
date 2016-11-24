@@ -49,7 +49,7 @@ class LinearRegression:
         gradient = np.dot(np.transpose(X), hypothesis) / np.size(y)
         return gradient
 
-    def fit(self, X, y, gradient=False, reg_parameter=0):
+    def fit(self, X, y, gradient=True, reg_parameter=0):
         """
         Currently, only L2 regularization is implemented.
 
