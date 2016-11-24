@@ -56,8 +56,6 @@ class LinearRegression:
         Args:
             X (np.ndarray): Training data of shape[n_samples, n_features]
             y (np.ndarray): Target values of shape[n_samples, 1]
-            gradient (bool): Optional use of gradient descent to calculate weights
-                if False, uses closed form solution to calculate weights.
             reg_parameter (float): float to determine strength of regulatrization  penalty
                 if 0, then no linear regression without regularization is performed
         Returns: an instance of self
