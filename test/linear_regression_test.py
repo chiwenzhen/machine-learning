@@ -33,7 +33,7 @@ if __name__ == '__main__':
     y_pred = regr.predict(x_test)
 
     # 均方误差
-    print("Mean squared error: %.2f" % (np.mean(y_test - y_test) ** 2))
+    print("Mean squared error: %.2f" % (np.mean(y_pred - y_test) ** 2))
 
     # 绘图
     plt.scatter(x_test, y_pred,  color='red')
