@@ -16,8 +16,9 @@ class LinearRegression:
         return prediction
 
     def grad(self, X, y, weights):
-        hypothesis = np.dot(X, weights)
-        gradient = np.dot(np.transpose(X), hypothesis - y) / np.size(y)
+        hypothesis = np.dot(X, weights)  # [n, 1]
+        # loss = 1/2n * ∑(wx^i - y^i)**2
+        gradient = np.dot(np.transpose(X), hypothesis - y) / np.size(y)  # values for all weight([n_features, 1])
         return gradient
 
     def fit(self, X, y, reg_parameter=0):
