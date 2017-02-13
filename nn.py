@@ -1,229 +1,132 @@
 # coding=utf-8
+"""
+前馈神经网络
+"""
+import random
 import numpy as np
-import tensorflow as tf
 
 
-class Parameters:
-    def __init__(self):
-        self.DATA_SIZE = 10000
-        self.DIMENSIONS = 2
-        self.NUM_CLASSES = 3
-        self.NUM_HIDDEN_UNITS = 100
-        self.LEARNING_RATE = 1e-0
-        self.REG = 1e-3
-        self.NUM_EPOCHS = 100
-        self.DISPLAY_STEP = 10
-        self.TENSORBOARD_DIR = 'logs'
+class Network(object):
+    def __init__(self, sizes):
+        """The list ``sizes`` contains the number of neurons in the
+        respective layers of the network.  For example, if the list
+        was [2, 3, 1] then it would be a three-layer network, with the
+        first layer containing 2 neurons, the second layer 3 neurons,
+        and the third layer 1 neuron.  The biases and weights for the
+        network are initialized randomly, using a Gaussian
+        distribution with mean 0, and variance 1.  Note that the first
+        layer is assumed to be an input layer, and by convention we
+        won't set any biases for those neurons, since biases are only
+        ever used in computing the outputs from later layers."""
+        self.num_layers = len(sizes)
+        self.sizes = sizes
+        self.biases = [np.random.randn(y, 1) for y in sizes[1:]]
+        self.weights = [np.random.randn(y, x)
+                        for x, y in zip(sizes[:-1], sizes[1:])]
+
+    def feedforward(self, a):
+        """Return the output of the network if ``a`` is input."""
+        for b, w in zip(self.biases, self.weights):
+            a = sigmoid(np.dot(w, a)+b)
+        return a
+
+    def SGD(self, training_data, epochs, mini_batch_size, eta,
+            test_data=None):
+        """Train the neural network using mini-batch stochastic
+        gradient descent.  The ``training_data`` is a list of tuples
+        ``(x, y)`` representing the training inputs and the desired
+        outputs.  The other non-optional parameters are
+        self-explanatory.  If ``test_data`` is provided then the
+        network will be evaluated against the test data after each
+        epoch, and partial progress printed out.  This is useful for
+        tracking progress, but slows things down substantially."""
+        if test_data: n_test = len(test_data)
+        n = len(training_data)
+        for j in xrange(epochs):
+            random.shuffle(training_data)
+            mini_batches = [
+                training_data[k:k+mini_batch_size]
+                for k in xrange(0, n, mini_batch_size)]
+            for mini_batch in mini_batches:
+                self.update_mini_batch(mini_batch, eta)
+            if test_data:
+                print "Epoch {0}: {1} / {2}".format(
+                    j, self.evaluate(test_data), n_test)
+            else:
+                print "Epoch {0} complete".format(j)
+
+    def update_mini_batch(self, mini_batch, eta):
+        """Update the network's weights and biases by applying
+        gradient descent using backpropagation to a single mini batch.
+        The ``mini_batch`` is a list of tuples ``(x, y)``, and ``eta``
+        is the learning rate."""
+        nabla_b = [np.zeros(b.shape) for b in self.biases]
+        nabla_w = [np.zeros(w.shape) for w in self.weights]
+        for x, y in mini_batch:
+            delta_nabla_b, delta_nabla_w = self.backprop(x, y)
+            nabla_b = [nb+dnb for nb, dnb in zip(nabla_b, delta_nabla_b)]
+            nabla_w = [nw+dnw for nw, dnw in zip(nabla_w, delta_nabla_w)]
+        self.weights = [w-(eta/len(mini_batch))*nw
+                        for w, nw in zip(self.weights, nabla_w)]
+        self.biases = [b-(eta/len(mini_batch))*nb
+                       for b, nb in zip(self.biases, nabla_b)]
+
+    def backprop(self, x, y):
+        """Return a tuple ``(nabla_b, nabla_w)`` representing the
+        gradient for the cost function C_x.  ``nabla_b`` and
+        ``nabla_w`` are layer-by-layer lists of numpy arrays, similar
+        to ``self.biases`` and ``self.weights``."""
+        nabla_b = [np.zeros(b.shape) for b in self.biases]
+        nabla_w = [np.zeros(w.shape) for w in self.weights]
+        # feedforward
+        activation = x
+        activations = [x]  # list to store all the activations, layer by layer
+        zs = [] # list to store all the z vectors, layer by layer
+        for b, w in zip(self.biases, self.weights):
+            z = np.dot(w, activation)+b
+            zs.append(z)
+            activation = sigmoid(z)
+            activations.append(activation)
+        # backward pass
+        delta = self.cost_derivative(activations[-1], y) * \
+            sigmoid_prime(zs[-1])
+        nabla_b[-1] = delta
+        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
+        # Note that the variable l in the loop below is used a little
+        # differently to the notation in Chapter 2 of the book.  Here,
+        # l = 1 means the last layer of neurons, l = 2 is the
+        # second-last layer, and so on.  It's a renumbering of the
+        # scheme in the book, used here to take advantage of the fact
+        # that Python can use negative indices in lists.
+        for l in xrange(2, self.num_layers):
+            z = zs[-l]
+            sp = sigmoid_prime(z)
+            delta = np.dot(self.weights[-l+1].transpose(), delta) * sp
+            nabla_b[-l] = delta
+            nabla_w[-l] = np.dot(delta, activations[-l-1].transpose())
+        return (nabla_b, nabla_w)
+
+    def evaluate(self, test_data):
+        """Return the number of test inputs for which the neural
+        network outputs the correct result. Note that the neural
+        network's output is assumed to be the index of whichever
+        neuron in the final layer has the highest activation."""
+        test_results = [(np.argmax(self.feedforward(x)), y)
+                        for (x, y) in test_data]
+        return sum(int(x == y) for (x, y) in test_results)
+
+    def cost_derivative(self, output_activations, y):
+        """Return the vector of partial derivatives \partial C_x /
+        \partial a for the output activations."""
+        return output_activations - y
 
 
-def load_data(config):
-    np.random.seed(0)
-    N = config.DATA_SIZE
-    D = config.DIMENSIONS
-    C = config.NUM_CLASSES
-
-    # Make synthetic spiral data
-    X_original = np.zeros((N * C, D))
-    y = np.zeros(N * C, dtype='uint8')
-    for j in xrange(C):
-        ix = range(N * j, N * (j + 1))
-        r = np.linspace(0.0, 1, N)  # radius
-        t = np.linspace(j * 4, (j + 1) * 4, N) + np.random.randn(N) * 0.2  # theta
-        X_original[ix] = np.c_[r * np.sin(t), r * np.cos(t)]
-        y[ix] = j
-
-    X = np.hstack([X_original, np.ones((X_original.shape[0], 1))])
-    D = X.shape[1]
-    config.DIMENSIONS = D
-
-    print "X:", (np.shape(X))  # (300, 3)
-    print "y:", (np.shape(y))  # (300,)
-
-    return config, X, y
+#### Miscellaneous functions
+def sigmoid(z):
+    """The sigmoid function."""
+    return 1.0/(1.0+np.exp(-z))
 
 
-def linear_model(config, X, y):
-    # Initialize weights
-    W = 0.01 * np.random.randn(config.DIMENSIONS, config.NUM_CLASSES)
-
-    for epoch_num in xrange(config.NUM_EPOCHS):
-
-        # Class scores [NXC]
-        logits = np.dot(X, W)
-
-        # Class probabilities
-        exp_logits = np.exp(logits)
-        probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-
-        # Loss
-        correct_class_logprobs = -np.log(probs[range(len(probs)), y])
-        loss = np.sum(correct_class_logprobs) / config.DATA_SIZE
-        loss += 0.5 * config.REG * np.sum(W * W)
-
-        # show progress
-        if epoch_num % config.DISPLAY_STEP == 0:
-            print "Epoch: %i, loss: %.3f" % (epoch_num, loss)
-
-        # Backpropagation
-        dscores = probs
-        dscores[range(len(probs)), y] -= 1
-        dscores /= config.DATA_SIZE
-
-        dW = np.dot(X.T, dscores)
-        dW += config.REG * W
-
-        W += -config.LEARNING_RATE * dW
-
-    return W
-
-
-def two_layer_NN(config, X, y):
-    # Initialize weights
-    W_1 = 0.01 * np.random.randn(config.DIMENSIONS, config.NUM_HIDDEN_UNITS)
-    W_2 = 0.01 * np.random.randn(config.NUM_HIDDEN_UNITS, config.NUM_CLASSES)
-
-    for epoch_num in xrange(config.NUM_EPOCHS):
-
-        # Class scores [NXC]
-        z_2 = np.dot(X, W_1)
-        a_2 = np.maximum(0, z_2)  # ReLU
-        logits = np.dot(a_2, W_2)
-
-        # Class probabilities
-        exp_logits = np.exp(logits)
-        probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-
-        # Loss
-        correct_class_logprobs = -np.log(probs[range(len(probs)), y])
-        loss = np.sum(correct_class_logprobs) / config.DATA_SIZE
-        loss += 0.5 * config.REG * np.sum(W_1 * W_1)
-        loss += 0.5 * config.REG * np.sum(W_2 * W_2)
-
-        # show progress
-        if epoch_num % config.DISPLAY_STEP == 0:
-            print "Epoch: %i, loss: %.3f" % (epoch_num, loss)
-
-        # Backpropagation
-        dscores = probs
-        dscores[range(len(probs)), y] -= 1
-        dscores /= config.DATA_SIZE
-        dW2 = np.dot(a_2.T, dscores)
-
-        dhidden = np.dot(dscores, W_2.T)
-        dhidden[a_2 <= 0] = 0  # ReLu backprop
-        dW1 = np.dot(X.T, dhidden)
-
-        dW2 += config.REG * W_2
-        dW1 += config.REG * W_1
-
-        W_1 += -config.LEARNING_RATE * dW1
-        W_2 += -config.LEARNING_RATE * dW2
-
-    return W_1, W_2
-
-
-def accuracy(X, y, W_1, W_2=None):
-    logits = np.dot(X, W_1)
-    if W_2 is None:
-        predicted_class = np.argmax(logits, axis=1)
-        print "Accuracy: %.3f" % (np.mean(predicted_class == y))
-    else:
-        z_2 = np.dot(X, W_1)
-        a_2 = np.maximum(0, z_2)
-        logits = np.dot(a_2, W_2)
-        predicted_class = np.argmax(logits, axis=1)
-        print "Accuracy: %.3f" % (np.mean(predicted_class == y))
-
-
-def create_model(sess, FLAGS):
-    model = mlp(FLAGS.DIMENSIONS,
-                FLAGS.NUM_HIDDEN_UNITS,
-                FLAGS.NUM_CLASSES,
-                FLAGS.REG,
-                FLAGS.LEARNING_RATE)
-    sess.run(tf.initialize_all_variables())
-    return model
-
-
-class mlp(object):
-    def __init__(self,
-                 input_dimensions,
-                 num_hidden_units,
-                 num_classes,
-                 regularization,
-                 learning_rate):
-        # Placeholders
-        self.X = tf.placeholder("float", [None, None])
-        self.y = tf.placeholder("float", [None, None])
-
-        # Weights
-        W1 = tf.Variable(tf.random_normal(
-            [input_dimensions, num_hidden_units], stddev=0.01), "W1")
-        W2 = tf.Variable(tf.random_normal(
-            [num_hidden_units, num_classes], stddev=0.01), "W2")
-
-        with tf.name_scope('forward_pass') as scope:
-            z_2 = tf.matmul(self.X, W1)
-            a_2 = tf.nn.relu(z_2)
-            self.logits = tf.matmul(a_2, W2)
-
-        # Add summary ops to collect data
-        W_1 = tf.histogram_summary("W1", W1)
-        W_2 = tf.histogram_summary("W2", W2)
-
-        with tf.name_scope('cost') as scope:
-            self.cost = tf.reduce_mean(
-                tf.nn.softmax_cross_entropy_with_logits(self.logits, self.y)) \
-                        + 0.5 * regularization * tf.reduce_sum(W1 * W1) \
-                        + 0.5 * regularization * tf.reduce_sum(W2 * W2)
-
-            tf.scalar_summary("cost", self.cost)
-
-        with tf.name_scope('train') as scope:
-            self.optimizer = tf.train.AdamOptimizer(
-                learning_rate=learning_rate).minimize(self.cost)
-
-    def step(self, sess, batch_X, batch_y):
-        input_feed = {self.X: batch_X, self.y: batch_y}
-        output_feed = [self.logits, self.cost, self.optimizer]
-
-        outputs = sess.run(output_feed, input_feed)
-        return outputs[0], outputs[1], outputs[2]
-
-    def summarize(self, sess, batch_X, batch_y):
-        # Merge all summaries into a single operator
-        merged_summary_op = tf.merge_all_summaries()
-        return sess.run(merged_summary_op,
-                        feed_dict={self.X: batch_X, self.y: batch_y})
-
-
-def train(FLAGS):
-    # Load the data
-    FLAGS, X, y = load_data(FLAGS)
-
-    with tf.Session() as sess:
-
-        model = create_model(sess, FLAGS)
-        summary_writer = tf.train.SummaryWriter(
-            FLAGS.TENSORBOARD_DIR, graph=sess.graph)
-
-        # y to categorical
-        Y = tf.one_hot(y, FLAGS.NUM_CLASSES).eval()
-
-        for epoch_num in range(FLAGS.NUM_EPOCHS):
-            logits, training_loss, _ = model.step(sess, X, Y)
-            # Display
-            if epoch_num % FLAGS.DISPLAY_STEP == 0:
-                print "EPOCH %i: \n Training loss: %.3f, Accuracy: %.3f" \
-                      % (epoch_num,
-                         training_loss,
-                         np.mean(np.argmax(logits, 1) == y))
-
-                # Write logs for each epoch_num
-                summary_str = model.summarize(sess, X, Y)
-                summary_writer.add_summary(summary_str, epoch_num)
-
-
-if __name__ == '__main__':
-    FLAGS = Parameters()
-    train(FLAGS)
+def sigmoid_prime(z):
+    """Derivative of the sigmoid function."""
+    return sigmoid(z)*(1-sigmoid(z))
